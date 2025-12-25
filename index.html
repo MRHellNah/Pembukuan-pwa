@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pembukuan</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#a5b4fc">
+
+<style>
+:root{
+ --bg:#f6f7fb;
+ --card:#ffffff;
+ --primary:#a5b4fc;
+ --green:#86efac;
+ --red:#fca5a5;
+ --text:#374151;
+ --muted:#9ca3af;
+}
+
+*{box-sizing:border-box}
+
+body{
+ margin:0;
+ font-family:system-ui,sans-serif;
+ background:var(--bg);
+ color:var(--text);
+}
+
+.app{
+ max-width:420px;
+ margin:auto;
+ padding:14px;
+}
+
+.header{
+ text-align:center;
+ font-size:18px;
+ font-weight:600;
+ margin-bottom:12px;
+}
+
+.card{
+ background:var(--card);
+ border-radius:18px;
+ padding:14px;
+ margin-bottom:12px;
+ box-shadow:0 6px 18px #00000012;
+}
+
+input,select,button{
+ width:100%;
+ padding:12px;
+ margin-top:6px;
+ border-radius:14px;
+ border:1px solid #e5e7eb;
+ font-size:14px;
+}
+
+button{
+ background:var(--primary);
+ color:white;
+ border:none;
+ font-weight:600;
+}
+
+.summary{
+ display:grid;
+ grid-template-columns:1fr 1fr 1fr;
+ gap:8px;
+ text-align:center;
+ font-size:13px;
+}
+
+.sum{
+ padding:10px;
+ border-radius:14px;
+}
+
+.in{background:#ecfdf5;color:#065f46}
+.out{background:#fff1f2;color:#7f1d1d}
+.saldo{background:#eef2ff;color:#1e3a8a}
+
+.item{
+ display:flex;
+ justify-content:space-between;
+ align-items:center;
+}
+
+.item small{color:var(--muted)}
+
+.item button{
+ background:none;
+ color:#ef4444;
+ padding:6px;
+ width:auto;
+}
+
+canvas{width:100%}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<div class="header">📒 Pembukuan</div>
+
+<!-- INPUT -->
+<div class="card">
+<input type="date" id="tgl">
+<input type="text" id="ket" placeholder="Keterangan">
+<input type="number" id="jml" placeholder="Jumlah">
+<select id="jenis">
+ <option value="masuk">Pemasukan</option>
+ <option value="keluar">Pengeluaran</option>
+</select>
+<button id="btnSimpan">Simpan</button>
+</div>
+
+<!-- RINGKASAN -->
+<div class="card summary">
+ <div class="sum in">Masuk<br><b id="in">0</b></div>
+ <div class="sum out">Keluar<br><b id="out">0</b></div>
+ <div class="sum saldo">Saldo<br><b id="saldo">0</b></div>
+</div>
+
+<!-- GRAFIK -->
+<div class="card">
+<canvas id="chart" height="160"></canvas>
+</div>
+
+<!-- FILTER -->
+<div class="card">
+<select id="filter">
+ <option value="">Semua Bulan</option>
+</select>
+<button id="btnExport">Export Excel</button>
+</div>
+
+<!-- LIST -->
+<div id="list"></div>
+
+</div>
+
+<script>
+/* ====== VAR ====== */
+const KEY="BUKU_DATA";
+let data=[];
+
+/* ====== ELEMENT ====== */
+const tgl=document.getElementById("tgl");
+const ket=document.getElementById("ket");
+const jml=document.getElementById("jml");
+const jenis=document.getElementById("jenis");
+const list=document.getElementById("list");
+const filter=document.getElementById("filter");
+const masukEl=document.getElementById("in");
+const keluarEl=document.getElementById("out");
+const saldoEl=document.getElementById("saldo");
+const chart=document.getElementById("chart");
+document.getElementById("btnSimpan").onclick=simpan;
+document.getElementById("btnExport").onclick=exportCSV;
+filter.onchange=tampil;
+
+/* ====== LOAD ====== */
+window.onload=()=>{
+ data=JSON.parse(localStorage.getItem(KEY))||[];
+ isiFilter();
+ tampil();
+ if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js");
+ }
+};
+
+/* ====== SIMPAN ====== */
+function simpan(){
+ if(!tgl.value||!ket.value||!jml.value){
+  alert("Lengkapi data");
+  return;
+ }
+ data.push({
+  tgl:tgl.value,
+  ket:ket.value,
+  jml:+jml.value,
+  jenis:jenis.value
+ });
+ localStorage.setItem(KEY,JSON.stringify(data));
+ tgl.value=ket.value=jml.value="";
+ tampil();
+}
+
+/* ====== FILTER ====== */
+function isiFilter(){
+ let bulan=[...new Set(data.map(d=>d.tgl.slice(0,7)))];
+ filter.innerHTML='<option value="">Semua Bulan</option>';
+ bulan.forEach(b=>filter.innerHTML+=`<option>${b}</option>`);
+}
+
+/* ====== TAMPIL ====== */
+function tampil(){
+ list.innerHTML="";
+ let m=0,k=0,f=filter.value;
+ data.forEach((d,i)=>{
+  if(f && !d.tgl.startsWith(f)) return;
+  d.jenis==="masuk"?m+=d.jml:k+=d.jml;
+  list.innerHTML+=`
+   <div class="card item">
+    <div>
+     <b>${d.ket}</b><br>
+     <small>${d.tgl} • ${d.jenis}</small>
+    </div>
+    <div>
+     <b>${d.jml}</b>
+     <button onclick="hapus(${i})">✕</button>
+    </div>
+   </div>`;
+ });
+ masukEl.textContent=m;
+ keluarEl.textContent=k;
+ saldoEl.textContent=m-k;
+ grafik(m,k);
+}
+
+/* ====== HAPUS ====== */
+function hapus(i){
+ data.splice(i,1);
+ localStorage.setItem(KEY,JSON.stringify(data));
+ tampil();
+}
+
+/* ====== GRAFIK ====== */
+function grafik(m,k){
+ let ctx=chart.getContext("2d");
+ ctx.clearRect(0,0,300,160);
+ let max=Math.max(m,k)||1;
+ ctx.fillStyle="#86efac";
+ ctx.fillRect(80,140-(m/max*100),40,(m/max*100));
+ ctx.fillStyle="#fca5a5";
+ ctx.fillRect(180,140-(k/max*100),40,(k/max*100));
+}
+
+/* ====== EXPORT ====== */
+function exportCSV(){
+ let csv="Tanggal,Keterangan,Jumlah,Jenis\n";
+ data.forEach(d=>csv+=`${d.tgl},${d.ket},${d.jml},${d.jenis}\n`);
+ let a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+ a.download="pembukuan.csv";
+ a.click();
+}
+</script>
+
+</body>
+</html>
